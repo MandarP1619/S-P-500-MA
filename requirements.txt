@@ -2,7 +2,6 @@ streamlit
 pandas
 numpy
 yfinance
-pandas-datareader
 matplotlib
 plotly
 setuptools
