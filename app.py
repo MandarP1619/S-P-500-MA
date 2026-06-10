@@ -91,12 +91,24 @@ def load_data(ticker, start_date, end_date):
     asset["Date"] = pd.to_datetime(asset["Date"])
 
     # Download 3-Month Treasury Bill Yield from FRED
-    tbill = web.DataReader(
-        "TB3MS",
-        "fred",
-        start=start_date,
-        end=end_date
-    )
+    fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=TB3MS"
+
+    response = requests.get(fred_url)
+    response.raise_for_status()
+
+    tbill = pd.read_csv(StringIO(response.text))
+    tbill = tbill.rename(columns={
+        "observation_date": "Date",
+        "TB3MS": "TBill_3M_Yield"
+    })
+
+    tbill["Date"] = pd.to_datetime(tbill["Date"])
+    tbill["TBill_3M_Yield"] = pd.to_numeric(tbill["TBill_3M_Yield"], errors="coerce")
+
+    tbill = tbill[
+        (tbill["Date"] >= pd.to_datetime(start_date)) &
+        (tbill["Date"] <= pd.to_datetime(end_date))
+    ]
 
     tbill = tbill.reset_index()
     tbill = tbill.rename(columns={
