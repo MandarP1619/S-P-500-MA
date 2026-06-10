@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
 from datetime import date
+import plotly.graph_objects as go
 
 st.set_page_config(
     page_title="315 SMA Tactical Strategy",
@@ -237,33 +238,44 @@ st.write("### Performance Summary")
 st.dataframe(metrics_display)
 
 # -----------------------------
-# Portfolio Growth Chart
+# Interactive Portfolio Growth Chart
 # -----------------------------
 st.write("### Portfolio Growth Comparison")
 
-fig, ax = plt.subplots(figsize=(14, 6))
+fig = go.Figure()
 
-ax.plot(
-    df["Date"],
-    df["Buy_Hold_Value"],
-    label=f"Buy & Hold {ticker}",
-    linewidth=2
+fig.add_trace(go.Scatter(
+    x=df["Date"],
+    y=df["Buy_Hold_Value"],
+    mode="lines",
+    name=f"Buy & Hold {ticker}",
+    hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+))
+
+fig.add_trace(go.Scatter(
+    x=df["Date"],
+    y=df["Strategy_Value"],
+    mode="lines",
+    name=f"{sma_window}-Day SMA Strategy",
+    hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+))
+
+fig.update_layout(
+    title=f"{sma_window}-Day SMA Strategy vs Buy & Hold {ticker}",
+    xaxis_title="Date",
+    yaxis_title="Portfolio Value ($)",
+    hovermode="x unified",
+    height=600,
+    legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="left",
+        x=0
+    )
 )
 
-ax.plot(
-    df["Date"],
-    df["Strategy_Value"],
-    label=f"{sma_window}-Day SMA Strategy",
-    linewidth=2
-)
-
-ax.set_title(f"{sma_window}-Day SMA Strategy vs Buy & Hold {ticker}")
-ax.set_xlabel("Date")
-ax.set_ylabel("Portfolio Value ($)")
-ax.legend()
-ax.grid(True)
-
-st.pyplot(fig)
+st.plotly_chart(fig, use_container_width=True)
 
 st.success("Data loaded and strategy calculated successfully.")
 
