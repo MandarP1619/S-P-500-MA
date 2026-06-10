@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import requests
-from io import StringIO
 import matplotlib.pyplot as plt
 from datetime import date
 
@@ -90,19 +88,27 @@ def load_data(ticker, start_date, end_date):
     asset = asset.rename(columns={asset.columns[0]: "Date"})
     asset["Date"] = pd.to_datetime(asset["Date"])
 
-    # Download 3-Month Treasury Bill Yield from FRED
-    fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=TB3MS"
+    # Download 3-Month Treasury Yield from FRED
+fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=TB3MS"
 
-    response = requests.get(fred_url)
-    response.raise_for_status()
+tbill = pd.read_csv(fred_url)
 
-    tbill = pd.read_csv(StringIO(response.text))
-    tbill = tbill.rename(columns={
-        "observation_date": "Date",
-        "TB3MS": "TBill_3M_Yield"
-    })
+tbill = tbill.rename(columns={
+    "observation_date": "Date",
+    "TB3MS": "TBill_3M_Yield"
+})
 
-    tbill["Date"] = pd.to_datetime(tbill["Date"])
+tbill = tbill[["Date", "TBill_3M_Yield"]]
+
+tbill["Date"] = pd.to_datetime(tbill["Date"])
+
+tbill["TBill_3M_Yield"] = pd.to_numeric(
+    tbill["TBill_3M_Yield"],
+    errors="coerce"
+)
+
+tbill = tbill.dropna()
+
     tbill["TBill_3M_Yield"] = pd.to_numeric(tbill["TBill_3M_Yield"], errors="coerce")
 
     tbill = tbill[
