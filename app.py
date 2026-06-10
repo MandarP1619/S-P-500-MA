@@ -171,4 +171,3 @@ df = run_strategy(df, sma_window, starting_balance)
 st.success("Data loaded and strategy calculated successfully.")
 
 st.write("### Strategy Data Preview")
-st.dataframe(df.tail())
