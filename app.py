@@ -129,3 +129,66 @@ st.success("Data loaded successfully.")
 
 st.write("### Data Preview")
 st.dataframe(df.head())
+
+# -----------------------------
+# Strategy Engine
+# -----------------------------
+def run_strategy(df, sma_window, starting_balance):
+    df = df.copy()
+
+    # Asset returns use adjusted close to account for dividends
+    df["Asset_Return"] = df["Asset_Adj_Close"].pct_change().fillna(0)
+
+    # Cash return uses 3M T-Bill yield converted from annual yield to daily return
+    df["Cash_Return"] = ((1 + df["TBill_3M_Yield"] / 100) ** (1 / 252)) - 1
+
+    # SMA uses actual closing price
+    df["SMA"] = df["Asset_Close"].rolling(window=sma_window).mean()
+
+    # Above / below SMA
+    df["Above_SMA"] = df["Asset_Close"] > df["SMA"]
+    df["Below_SMA"] = df["Asset_Close"] < df["SMA"]
+
+    # Two consecutive trading-day confirmation
+    df["Confirmed_Above"] = df["Above_SMA"] & df["Above_SMA"].shift(1)
+    df["Confirmed_Below"] = df["Below_SMA"] & df["Below_SMA"].shift(1)
+
+    # Position logic
+    # 1 = Asset
+    # 0 = Cash / T-Bill
+    position = []
+    current_position = 1
+
+    for i in range(len(df)):
+        if df.loc[i, "Confirmed_Below"]:
+            current_position = 0
+        elif df.loc[i, "Confirmed_Above"]:
+            current_position = 1
+
+        position.append(current_position)
+
+    df["Position"] = position
+
+    # Strategy return
+    # Trade happens at close of confirmation day
+    # New position earns returns starting next trading day
+    df["Strategy_Return"] = np.where(
+        df["Position"].shift(1) == 1,
+        df["Asset_Return"],
+        df["Cash_Return"]
+    )
+
+    df["Strategy_Return"] = df["Strategy_Return"].fillna(0)
+
+    # Portfolio values
+    df["Strategy_Value"] = starting_balance * (1 + df["Strategy_Return"]).cumprod()
+    df["Buy_Hold_Value"] = starting_balance * (1 + df["Asset_Return"]).cumprod()
+    df["Cash_Value"] = starting_balance * (1 + df["Cash_Return"]).cumprod()
+
+    return df
+
+df = run_strategy(df, sma_window, starting_balance)
+
+st.write("### Strategy Data Preview")
+st.dataframe(df.tail())
+
