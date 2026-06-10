@@ -313,46 +313,69 @@ fig.update_xaxes(title_text="Date", row=2, col=1)
 st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
-# Interactive Price vs SMA Chart
+# Trade Ledger
 # -----------------------------
-st.write("### Price vs Moving Average")
+st.write("### Trade Ledger")
 
-fig = go.Figure()
+df["Position_Change"] = df["Position"].diff()
 
-fig.add_trace(go.Scatter(
-    x=df["Date"],
-    y=df["Asset_Close"],
-    mode="lines",
-    name=f"{ticker} Close",
-    line=dict(color="#2563EB"),
-    hovertemplate="Date: %{x}<br>Close: $%{y:,.2f}<extra></extra>"
-))
+trade_ledger = df[df["Position_Change"] != 0].copy()
 
-fig.add_trace(go.Scatter(
-    x=df["Date"],
-    y=df["SMA"],
-    mode="lines",
-    name=f"{sma_window}-Day SMA",
-    line=dict(color="#F97316"),
-    hovertemplate="Date: %{x}<br>SMA: $%{y:,.2f}<extra></extra>"
-))
-
-fig.update_layout(
-    title=f"{ticker} Price vs {sma_window}-Day Moving Average",
-    xaxis_title="Date",
-    yaxis_title="Price ($)",
-    hovermode="x unified",
-    height=650,
-    legend=dict(
-        orientation="h",
-        yanchor="bottom",
-        y=1.02,
-        xanchor="left",
-        x=0
-    )
+trade_ledger["Trade_Action"] = np.where(
+    trade_ledger["Position"] == 1,
+    f"Sell T-Bill / Buy {ticker}",
+    f"Sell {ticker} / Buy T-Bill"
 )
 
-st.plotly_chart(fig, use_container_width=True)
+trade_ledger["Reason"] = np.where(
+    trade_ledger["Position"] == 1,
+    f"2 consecutive closes ABOVE {sma_window}-day SMA",
+    f"2 consecutive closes BELOW {sma_window}-day SMA"
+)
+
+trade_ledger["Strategy_Advantage"] = (
+    trade_ledger["Strategy_Value"] - trade_ledger["Buy_Hold_Value"]
+)
+
+trade_ledger = trade_ledger[[
+    "Date",
+    "Trade_Action",
+    "Reason",
+    "Asset_Close",
+    "SMA",
+    "TBill_3M_Yield",
+    "Strategy_Value",
+    "Buy_Hold_Value",
+    "Strategy_Advantage"
+]].copy()
+
+trade_ledger = trade_ledger.rename(columns={
+    "Asset_Close": f"{ticker}_Close",
+    "SMA": f"{sma_window}_Day_SMA",
+    "TBill_3M_Yield": "3M_TBill_Yield"
+})
+
+show_all_trades = st.checkbox("Show all trade ledger entries", value=False)
+
+if show_all_trades:
+    display_ledger = trade_ledger
+else:
+    display_ledger = trade_ledger.tail(20)
+
+st.dataframe(
+    display_ledger,
+    use_container_width=True,
+    hide_index=True
+)
+
+csv = trade_ledger.to_csv(index=False).encode("utf-8")
+
+st.download_button(
+    label="Download Full Trade Ledger as CSV",
+    data=csv,
+    file_name=f"{ticker}_trade_ledger.csv",
+    mime="text/csv"
+)
 
 st.success("Data loaded and strategy calculated successfully.")
 
