@@ -168,6 +168,74 @@ if df is None or df.empty:
 
 df = run_strategy(df, sma_window, starting_balance)
 
+# -----------------------------
+# Performance Metrics
+# -----------------------------
+def calculate_cagr(values, dates):
+    values = values.dropna()
+    years = (dates.iloc[-1] - dates.iloc[0]).days / 365.25
+
+    if years <= 0:
+        return np.nan
+
+    return (values.iloc[-1] / values.iloc[0]) ** (1 / years) - 1
+
+
+def calculate_volatility(returns):
+    return returns.std() * np.sqrt(252)
+
+
+def calculate_max_drawdown(values):
+    running_max = values.cummax()
+    drawdown = values / running_max - 1
+    return drawdown.min()
+
+
+def calculate_sharpe_ratio(returns):
+    if returns.std() == 0:
+        return np.nan
+
+    return (returns.mean() * 252) / (returns.std() * np.sqrt(252))
+
+
+metrics = pd.DataFrame({
+    "315 SMA Strategy": [
+        calculate_cagr(df["Strategy_Value"], df["Date"]),
+        calculate_volatility(df["Strategy_Return"]),
+        calculate_max_drawdown(df["Strategy_Value"]),
+        calculate_sharpe_ratio(df["Strategy_Return"])
+    ],
+    f"Buy & Hold {ticker}": [
+        calculate_cagr(df["Buy_Hold_Value"], df["Date"]),
+        calculate_volatility(df["Asset_Return"]),
+        calculate_max_drawdown(df["Buy_Hold_Value"]),
+        calculate_sharpe_ratio(df["Asset_Return"])
+    ],
+    "Cash / 3M T-Bill": [
+        calculate_cagr(df["Cash_Value"], df["Date"]),
+        calculate_volatility(df["Cash_Return"]),
+        calculate_max_drawdown(df["Cash_Value"]),
+        calculate_sharpe_ratio(df["Cash_Return"])
+    ]
+}, index=[
+    "CAGR",
+    "Volatility",
+    "Max Drawdown",
+    "Sharpe Ratio"
+])
+
+metrics_display = metrics.copy()
+
+for row in ["CAGR", "Volatility", "Max Drawdown"]:
+    metrics_display.loc[row] = metrics_display.loc[row].map(lambda x: f"{x:.2%}")
+
+metrics_display.loc["Sharpe Ratio"] = metrics_display.loc["Sharpe Ratio"].map(
+    lambda x: f"{x:.2f}"
+)
+
+st.write("### Performance Summary")
+st.dataframe(metrics_display)
+
 st.success("Data loaded and strategy calculated successfully.")
 
 st.write("### Strategy Data Preview")
