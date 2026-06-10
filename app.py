@@ -224,12 +224,12 @@ metrics = pd.DataFrame({
     "Sharpe Ratio"
 ])
 
-metrics_display = metrics.copy()
+metrics_display = metrics.astype(object).copy()
 
 for row in ["CAGR", "Volatility", "Max Drawdown"]:
-    metrics_display.loc[row] = metrics_display.loc[row].map(lambda x: f"{x:.2%}")
+    metrics_display.loc[row, :] = metrics.loc[row, :].apply(lambda x: f"{x:.2%}")
 
-metrics_display.loc["Sharpe Ratio"] = metrics_display.loc["Sharpe Ratio"].map(
+metrics_display.loc["Sharpe Ratio", :] = metrics.loc["Sharpe Ratio", :].apply(
     lambda x: f"{x:.2f}"
 )
 
