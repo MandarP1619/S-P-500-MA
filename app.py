@@ -236,6 +236,35 @@ metrics_display.loc["Sharpe Ratio", :] = metrics.loc["Sharpe Ratio", :].apply(
 st.write("### Performance Summary")
 st.dataframe(metrics_display)
 
+# -----------------------------
+# Portfolio Growth Chart
+# -----------------------------
+st.write("### Portfolio Growth Comparison")
+
+fig, ax = plt.subplots(figsize=(14, 6))
+
+ax.plot(
+    df["Date"],
+    df["Buy_Hold_Value"],
+    label=f"Buy & Hold {ticker}",
+    linewidth=2
+)
+
+ax.plot(
+    df["Date"],
+    df["Strategy_Value"],
+    label=f"{sma_window}-Day SMA Strategy",
+    linewidth=2
+)
+
+ax.set_title(f"{sma_window}-Day SMA Strategy vs Buy & Hold {ticker}")
+ax.set_xlabel("Date")
+ax.set_ylabel("Portfolio Value ($)")
+ax.legend()
+ax.grid(True)
+
+st.pyplot(fig)
+
 st.success("Data loaded and strategy calculated successfully.")
 
 st.write("### Strategy Data Preview")
