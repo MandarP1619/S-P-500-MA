@@ -75,10 +75,10 @@ def load_data(ticker, start_date, end_date):
 
     asset = asset.reset_index()
     asset = asset.rename(columns={asset.columns[0]: "Date"})
-    asset["Date"] = pd.to_datetime(asset["Date"])
+
+    asset["Date"] = pd.to_datetime(asset["Date"], errors="coerce").dt.date
 
     fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=TB3MS"
-
     tbill = pd.read_csv(fred_url)
 
     tbill = tbill.rename(columns={
@@ -87,32 +87,31 @@ def load_data(ticker, start_date, end_date):
     })
 
     tbill = tbill[["Date", "TBill_3M_Yield"]].copy()
-    tbill["Date"] = pd.to_datetime(tbill["Date"])
-    tbill["TBill_3M_Yield"] = pd.to_numeric(
-        tbill["TBill_3M_Yield"],
-        errors="coerce"
-    )
+    tbill["Date"] = pd.to_datetime(tbill["Date"], errors="coerce").dt.date
+    tbill["TBill_3M_Yield"] = pd.to_numeric(tbill["TBill_3M_Yield"], errors="coerce")
+    tbill = tbill.dropna()
 
-    tbill = tbill.dropna(subset=["TBill_3M_Yield"])
+    full_dates = pd.DataFrame({
+        "Date": pd.date_range(start=start_date, end=end_date).date
+    })
 
-    tbill = tbill[
-        (tbill["Date"] >= pd.to_datetime(start_date)) &
-        (tbill["Date"] <= pd.to_datetime(end_date))
-    ]
-
-    asset["Date"] = pd.to_datetime(asset["Date"]).dt.tz_localize(None)
-    tbill["Date"] = pd.to_datetime(tbill["Date"]).dt.tz_localize(None)
-
-    asset = asset.sort_values("Date").reset_index(drop=True)
-    tbill = tbill.sort_values("Date").reset_index(drop=True)
-
-    df = pd.merge_asof(
-        asset,
+    tbill_daily = pd.merge(
+        full_dates,
         tbill,
         on="Date",
-        direction="backward"
+        how="left"
     )
 
+    tbill_daily["TBill_3M_Yield"] = tbill_daily["TBill_3M_Yield"].ffill()
+
+    df = pd.merge(
+        asset,
+        tbill_daily,
+        on="Date",
+        how="left"
+    )
+
+    df["Date"] = pd.to_datetime(df["Date"])
     df["TBill_3M_Yield"] = df["TBill_3M_Yield"].ffill()
 
     return df
