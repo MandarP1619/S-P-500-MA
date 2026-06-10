@@ -100,9 +100,15 @@ def load_data(ticker, start_date, end_date):
         (tbill["Date"] <= pd.to_datetime(end_date))
     ]
 
+    asset["Date"] = pd.to_datetime(asset["Date"]).dt.tz_localize(None)
+    tbill["Date"] = pd.to_datetime(tbill["Date"]).dt.tz_localize(None)
+
+    asset = asset.sort_values("Date").reset_index(drop=True)
+    tbill = tbill.sort_values("Date").reset_index(drop=True)
+
     df = pd.merge_asof(
-        asset.sort_values("Date"),
-        tbill.sort_values("Date"),
+        asset,
+        tbill,
         on="Date",
         direction="backward"
     )
