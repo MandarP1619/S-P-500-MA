@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import pandas_datareader.data as web
+import requests
+from io import StringIO
 import matplotlib.pyplot as plt
 from datetime import date
 
