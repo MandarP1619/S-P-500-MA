@@ -249,7 +249,7 @@ fig.add_trace(go.Scatter(
     y=df["Buy_Hold_Value"],
     mode="lines",
     name=f"Buy & Hold {ticker}",
-    hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+    line=dict(color="#2563EB")  # Strong Blue
 ))
 
 fig.add_trace(go.Scatter(
@@ -257,7 +257,7 @@ fig.add_trace(go.Scatter(
     y=df["Strategy_Value"],
     mode="lines",
     name=f"{sma_window}-Day SMA Strategy",
-    hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+    line=dict(color="#F97316")  # Orange
 ))
 
 fig.update_layout(
