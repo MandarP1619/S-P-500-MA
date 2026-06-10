@@ -277,6 +277,70 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
+# -----------------------------
+# Price vs SMA Chart
+# -----------------------------
+st.write("### Price vs Moving Average")
+
+buy_signals = df[df["Confirmed_Above"]]
+sell_signals = df[df["Confirmed_Below"]]
+
+fig = go.Figure()
+
+# Asset Price
+fig.add_trace(go.Scatter(
+    x=df["Date"],
+    y=df["Asset_Close"],
+    mode="lines",
+    name=f"{ticker} Close",
+    line=dict(color="#2563EB")
+))
+
+# SMA
+fig.add_trace(go.Scatter(
+    x=df["Date"],
+    y=df["SMA"],
+    mode="lines",
+    name=f"{sma_window}-Day SMA",
+    line=dict(color="#F97316")
+))
+
+# Buy Signals
+fig.add_trace(go.Scatter(
+    x=buy_signals["Date"],
+    y=buy_signals["Asset_Close"],
+    mode="markers",
+    name="Buy Signal",
+    marker=dict(
+        symbol="triangle-up",
+        size=10,
+        color="green"
+    )
+))
+
+# Sell Signals
+fig.add_trace(go.Scatter(
+    x=sell_signals["Date"],
+    y=sell_signals["Asset_Close"],
+    mode="markers",
+    name="Sell Signal",
+    marker=dict(
+        symbol="triangle-down",
+        size=10,
+        color="red"
+    )
+))
+
+fig.update_layout(
+    title=f"{ticker} Price vs {sma_window}-Day SMA",
+    xaxis_title="Date",
+    yaxis_title="Price ($)",
+    hovermode="x unified",
+    height=700
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
 st.success("Data loaded and strategy calculated successfully.")
 
 st.write("### Strategy Data Preview")
