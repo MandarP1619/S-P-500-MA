@@ -5,6 +5,7 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 from datetime import date
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 st.set_page_config(
     page_title="315 SMA Tactical Strategy",
@@ -238,42 +239,76 @@ st.write("### Performance Summary")
 st.dataframe(metrics_display)
 
 # -----------------------------
-# Interactive Portfolio Growth Chart
+# Interactive Portfolio + T-Bill Yield Chart
 # -----------------------------
-st.write("### Portfolio Growth Comparison")
+st.write("### Strategy vs Buy & Hold with T-Bill Yield")
 
-fig = go.Figure()
+fig = make_subplots(
+    rows=2,
+    cols=1,
+    shared_xaxes=True,
+    vertical_spacing=0.08,
+    row_heights=[0.75, 0.25],
+    subplot_titles=(
+        f"{sma_window}-Day SMA Strategy vs Buy & Hold {ticker}",
+        "3-Month T-Bill Yield Over Time"
+    )
+)
 
-fig.add_trace(go.Scatter(
-    x=df["Date"],
-    y=df["Buy_Hold_Value"],
-    mode="lines",
-    name=f"Buy & Hold {ticker}",
-    line=dict(color="#2563EB")  # Strong Blue
-))
+fig.add_trace(
+    go.Scatter(
+        x=df["Date"],
+        y=df["Buy_Hold_Value"],
+        mode="lines",
+        name=f"Buy & Hold {ticker}",
+        line=dict(color="#2563EB"),
+        hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+    ),
+    row=1,
+    col=1
+)
 
-fig.add_trace(go.Scatter(
-    x=df["Date"],
-    y=df["Strategy_Value"],
-    mode="lines",
-    name=f"{sma_window}-Day SMA Strategy",
-    line=dict(color="#F97316")  # Orange
-))
+fig.add_trace(
+    go.Scatter(
+        x=df["Date"],
+        y=df["Strategy_Value"],
+        mode="lines",
+        name=f"{sma_window}-Day SMA Strategy",
+        line=dict(color="#F97316"),
+        hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+    ),
+    row=1,
+    col=1
+)
+
+fig.add_trace(
+    go.Scatter(
+        x=df["Date"],
+        y=df["TBill_3M_Yield"],
+        mode="lines",
+        name="3M T-Bill Yield",
+        line=dict(color="#16A34A"),
+        hovertemplate="Date: %{x}<br>Yield: %{y:.2f}%<extra></extra>"
+    ),
+    row=2,
+    col=1
+)
 
 fig.update_layout(
-    title=f"{sma_window}-Day SMA Strategy vs Buy & Hold {ticker}",
-    xaxis_title="Date",
-    yaxis_title="Portfolio Value ($)",
+    height=850,
     hovermode="x unified",
-    height=600,
     legend=dict(
         orientation="h",
         yanchor="bottom",
-        y=1.02,
+        y=1.03,
         xanchor="left",
         x=0
     )
 )
+
+fig.update_yaxes(title_text="Portfolio Value ($)", row=1, col=1)
+fig.update_yaxes(title_text="Yield (%)", row=2, col=1)
+fig.update_xaxes(title_text="Date", row=2, col=1)
 
 st.plotly_chart(fig, use_container_width=True)
 
