@@ -44,6 +44,10 @@ starting_balance = st.sidebar.number_input(
     step=1000
 )
 
+if st.sidebar.button("Refresh Data"):
+    st.cache_data.clear()
+    st.rerun()
+    
 st.write("### Current Settings")
 st.write(f"Ticker: **{ticker}**")
 st.write(f"Start Date: **{start_date}**")
@@ -52,7 +56,7 @@ st.write(f"SMA Window: **{sma_window} trading days**")
 st.write(f"Starting Balance: **${starting_balance:,.0f}**")
 
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_data(ticker, start_date, end_date):
     asset = yf.download(
         ticker,
@@ -162,7 +166,10 @@ def run_strategy(df, sma_window, starting_balance):
     return df
 
 
-df = load_data(ticker, start_date, end_date)
+start_date_str = start_date.strftime("%Y-%m-%d")
+end_date_str = end_date.strftime("%Y-%m-%d")
+
+df = load_data(ticker, start_date_str, end_date_str)
 
 if df is None or df.empty:
     st.error("No data found. Please check the ticker symbol or date range.")
@@ -378,5 +385,3 @@ st.download_button(
 )
 
 st.success("Data loaded and strategy calculated successfully.")
-
-st.write("### Strategy Data Preview")
