@@ -384,4 +384,51 @@ st.download_button(
     mime="text/csv"
 )
 
+# -----------------------------
+# SMA Window Comparison
+# -----------------------------
+st.write("### SMA Strategy Comparison: 90 vs 150 vs 200 vs 315 Days")
+
+comparison_windows = [90, 150, 200, 315]
+
+comparison_df = df.copy()
+comparison_results = {}
+
+for window in comparison_windows:
+    temp_df = run_strategy(comparison_df, window, starting_balance)
+    comparison_results[f"{window}-Day SMA"] = temp_df["Strategy_Value"]
+
+comparison_chart_df = pd.DataFrame(comparison_results)
+comparison_chart_df["Date"] = df["Date"]
+
+fig_sma_compare = go.Figure()
+
+for window in comparison_windows:
+    fig_sma_compare.add_trace(
+        go.Scatter(
+            x=comparison_chart_df["Date"],
+            y=comparison_chart_df[f"{window}-Day SMA"],
+            mode="lines",
+            name=f"{window}-Day SMA Strategy",
+            hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+        )
+    )
+
+fig_sma_compare.update_layout(
+    height=650,
+    title="Portfolio Value Comparison Across SMA Windows",
+    xaxis_title="Date",
+    yaxis_title="Portfolio Value ($)",
+    hovermode="x unified",
+    legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.03,
+        xanchor="left",
+        x=0
+    )
+)
+
+st.plotly_chart(fig_sma_compare, use_container_width=True)
+
 st.success("Data loaded and strategy calculated successfully.")
