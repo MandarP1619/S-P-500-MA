@@ -431,4 +431,43 @@ fig_sma_compare.update_layout(
 
 st.plotly_chart(fig_sma_compare, use_container_width=True)
 
+# -----------------------------
+# SMA Comparison Performance Summary
+# -----------------------------
+comparison_metrics = {}
+
+for window in comparison_windows:
+    temp_df = run_strategy(df.copy(), window, starting_balance)
+
+    comparison_metrics[f"{window}-Day SMA"] = [
+        calculate_cagr(temp_df["Strategy_Value"], temp_df["Date"]),
+        calculate_volatility(temp_df["Strategy_Return"]),
+        calculate_max_drawdown(temp_df["Strategy_Value"]),
+        calculate_sharpe_ratio(temp_df["Strategy_Return"])
+    ]
+
+sma_comparison_metrics = pd.DataFrame(
+    comparison_metrics,
+    index=[
+        "CAGR",
+        "Volatility",
+        "Max Drawdown",
+        "Sharpe Ratio"
+    ]
+)
+
+sma_comparison_display = sma_comparison_metrics.astype(object).copy()
+
+for row in ["CAGR", "Volatility", "Max Drawdown"]:
+    sma_comparison_display.loc[row, :] = sma_comparison_metrics.loc[row, :].apply(
+        lambda x: f"{x:.2%}"
+    )
+
+sma_comparison_display.loc["Sharpe Ratio", :] = sma_comparison_metrics.loc[
+    "Sharpe Ratio", :
+].apply(lambda x: f"{x:.2f}")
+
+st.write("### SMA Window Performance Summary")
+st.dataframe(sma_comparison_display, use_container_width=True)
+
 st.success("Data loaded and strategy calculated successfully.")
