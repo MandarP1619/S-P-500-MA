@@ -470,4 +470,84 @@ sma_comparison_display.loc["Sharpe Ratio", :] = sma_comparison_metrics.loc[
 st.write("### SMA Window Performance Summary")
 st.dataframe(sma_comparison_display, use_container_width=True)
 
+# -----------------------------
+# Parameter Heatmap: SMA Window Robustness
+# -----------------------------
+st.write("### Parameter Heatmap: SMA Window Robustness")
+
+sma_range = list(range(50, 401, 10))
+
+heatmap_results = []
+
+for window in sma_range:
+    temp_df = run_strategy(df.copy(), window, starting_balance)
+
+    cagr = calculate_cagr(temp_df["Strategy_Value"], temp_df["Date"])
+    vol = calculate_volatility(temp_df["Strategy_Return"])
+    max_dd = calculate_max_drawdown(temp_df["Strategy_Value"])
+    sharpe = calculate_sharpe_ratio(temp_df["Strategy_Return"])
+
+    calmar = cagr / abs(max_dd) if max_dd != 0 else np.nan
+
+    heatmap_results.append({
+        "SMA Window": window,
+        "CAGR": cagr,
+        "Volatility": vol,
+        "Max Drawdown": max_dd,
+        "Sharpe Ratio": sharpe,
+        "Calmar Ratio": calmar
+    })
+
+heatmap_df = pd.DataFrame(heatmap_results)
+
+selected_metric = st.selectbox(
+    "Select metric for heatmap",
+    ["Max Drawdown", "CAGR", "Sharpe Ratio", "Calmar Ratio", "Volatility"]
+)
+
+heatmap_display = heatmap_df.copy()
+heatmap_display["Bucket"] = "SMA Window"
+
+fig_heatmap = go.Figure(
+    data=go.Heatmap(
+        x=heatmap_display["SMA Window"],
+        y=heatmap_display["Bucket"],
+        z=heatmap_display[selected_metric],
+        colorscale="RdYlGn",
+        colorbar=dict(title=selected_metric),
+        hovertemplate=(
+            "SMA Window: %{x}<br>"
+            f"{selected_metric}: " + "%{z:.4f}<extra></extra>"
+        )
+    )
+)
+
+fig_heatmap.update_layout(
+    height=300,
+    title=f"{selected_metric} by SMA Window",
+    xaxis_title="SMA Window",
+    yaxis_title=""
+)
+
+st.plotly_chart(fig_heatmap, use_container_width=True)
+
+# -----------------------------
+# Parameter Table
+# -----------------------------
+st.write("### SMA Parameter Results Table")
+
+heatmap_table = heatmap_df.copy()
+
+for col in ["CAGR", "Volatility", "Max Drawdown"]:
+    heatmap_table[col] = heatmap_table[col].apply(lambda x: f"{x:.2%}")
+
+heatmap_table["Sharpe Ratio"] = heatmap_table["Sharpe Ratio"].apply(lambda x: f"{x:.2f}")
+heatmap_table["Calmar Ratio"] = heatmap_table["Calmar Ratio"].apply(lambda x: f"{x:.2f}")
+
+st.dataframe(
+    heatmap_table,
+    use_container_width=True,
+    hide_index=True
+)
+
 st.success("Data loaded and strategy calculated successfully.")
