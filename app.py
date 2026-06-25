@@ -2,15 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import matplotlib.pyplot as plt
 from datetime import date
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-st.set_page_config(
-    page_title="315 SMA Tactical Strategy",
-    layout="wide"
-)
+st.set_page_config(page_title="315 SMA Tactical Strategy", layout="wide")
 
 st.title("315-Day SMA Tactical Strategy")
 st.write("This app compares a moving-average tactical strategy against buy-and-hold.")
@@ -19,15 +15,8 @@ st.sidebar.header("Strategy Configuration")
 
 ticker = st.sidebar.text_input("Ticker Symbol", value="SPY").upper()
 
-start_date = st.sidebar.date_input(
-    "Start Date",
-    value=date(1995, 1, 1)
-)
-
-end_date = st.sidebar.date_input(
-    "End Date",
-    value=date.today()
-)
+start_date = st.sidebar.date_input("Start Date", value=date(1995, 1, 1))
+end_date = st.sidebar.date_input("End Date", value=date.today())
 
 sma_window = st.sidebar.number_input(
     "Moving Average Window",
@@ -47,7 +36,7 @@ starting_balance = st.sidebar.number_input(
 if st.sidebar.button("Refresh Data"):
     st.cache_data.clear()
     st.rerun()
-    
+
 st.write("### Current Settings")
 st.write(f"Ticker: **{ticker}**")
 st.write(f"Start Date: **{start_date}**")
@@ -81,7 +70,6 @@ def load_data(ticker, start_date, end_date):
 
     asset = asset.reset_index()
     asset = asset.rename(columns={asset.columns[0]: "Date"})
-
     asset["Date"] = pd.to_datetime(asset["Date"], errors="coerce").dt.date
 
     fred_url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=TB3MS"
@@ -101,22 +89,10 @@ def load_data(ticker, start_date, end_date):
         "Date": pd.date_range(start=start_date, end=end_date).date
     })
 
-    tbill_daily = pd.merge(
-        full_dates,
-        tbill,
-        on="Date",
-        how="left"
-    )
-
+    tbill_daily = pd.merge(full_dates, tbill, on="Date", how="left")
     tbill_daily["TBill_3M_Yield"] = tbill_daily["TBill_3M_Yield"].ffill()
 
-    df = pd.merge(
-        asset,
-        tbill_daily,
-        on="Date",
-        how="left"
-    )
-
+    df = pd.merge(asset, tbill_daily, on="Date", how="left")
     df["Date"] = pd.to_datetime(df["Date"])
     df["TBill_3M_Yield"] = df["TBill_3M_Yield"].ffill()
 
@@ -127,7 +103,6 @@ def run_strategy(df, sma_window, starting_balance):
     df = df.copy()
 
     df["Asset_Return"] = df["Asset_Adj_Close"].pct_change().fillna(0)
-
     df["Cash_Return"] = ((1 + df["TBill_3M_Yield"] / 100) ** (1 / 252)) - 1
 
     df["SMA"] = df["Asset_Close"].rolling(window=sma_window).mean()
@@ -166,20 +141,6 @@ def run_strategy(df, sma_window, starting_balance):
     return df
 
 
-start_date_str = start_date.strftime("%Y-%m-%d")
-end_date_str = end_date.strftime("%Y-%m-%d")
-
-df = load_data(ticker, start_date_str, end_date_str)
-
-if df is None or df.empty:
-    st.error("No data found. Please check the ticker symbol or date range.")
-    st.stop()
-
-df = run_strategy(df, sma_window, starting_balance)
-
-# -----------------------------
-# Performance Metrics
-# -----------------------------
 def calculate_cagr(values, dates):
     values = values.dropna()
     years = (dates.iloc[-1] - dates.iloc[0]).days / 365.25
@@ -207,43 +168,86 @@ def calculate_sharpe_ratio(returns):
     return (returns.mean() * 252) / (returns.std() * np.sqrt(252))
 
 
+def calculate_calmar_ratio(cagr, max_drawdown):
+    if max_drawdown == 0 or pd.isna(max_drawdown):
+        return np.nan
+
+    return cagr / abs(max_drawdown)
+
+
+def format_metrics_table(metrics):
+    display = metrics.astype(object).copy()
+
+    for row in ["CAGR", "Volatility", "Max Drawdown"]:
+        display.loc[row, :] = metrics.loc[row, :].apply(lambda x: f"{x:.2%}")
+
+    display.loc["Sharpe Ratio", :] = metrics.loc["Sharpe Ratio", :].apply(
+        lambda x: f"{x:.2f}"
+    )
+
+    if "Calmar Ratio" in display.index:
+        display.loc["Calmar Ratio", :] = metrics.loc["Calmar Ratio", :].apply(
+            lambda x: f"{x:.2f}"
+        )
+
+    return display
+
+
+start_date_str = start_date.strftime("%Y-%m-%d")
+end_date_str = end_date.strftime("%Y-%m-%d")
+
+raw_df = load_data(ticker, start_date_str, end_date_str)
+
+if raw_df is None or raw_df.empty:
+    st.error("No data found. Please check the ticker symbol or date range.")
+    st.stop()
+
+df = run_strategy(raw_df.copy(), sma_window, starting_balance)
+
+# -----------------------------
+# Performance Summary
+# -----------------------------
+strategy_cagr = calculate_cagr(df["Strategy_Value"], df["Date"])
+strategy_max_dd = calculate_max_drawdown(df["Strategy_Value"])
+
+buy_hold_cagr = calculate_cagr(df["Buy_Hold_Value"], df["Date"])
+buy_hold_max_dd = calculate_max_drawdown(df["Buy_Hold_Value"])
+
+cash_cagr = calculate_cagr(df["Cash_Value"], df["Date"])
+cash_max_dd = calculate_max_drawdown(df["Cash_Value"])
+
 metrics = pd.DataFrame({
-    "315 SMA Strategy": [
-        calculate_cagr(df["Strategy_Value"], df["Date"]),
+    f"{sma_window}-Day SMA Strategy": [
+        strategy_cagr,
         calculate_volatility(df["Strategy_Return"]),
-        calculate_max_drawdown(df["Strategy_Value"]),
-        calculate_sharpe_ratio(df["Strategy_Return"])
+        strategy_max_dd,
+        calculate_sharpe_ratio(df["Strategy_Return"]),
+        calculate_calmar_ratio(strategy_cagr, strategy_max_dd)
     ],
     f"Buy & Hold {ticker}": [
-        calculate_cagr(df["Buy_Hold_Value"], df["Date"]),
+        buy_hold_cagr,
         calculate_volatility(df["Asset_Return"]),
-        calculate_max_drawdown(df["Buy_Hold_Value"]),
-        calculate_sharpe_ratio(df["Asset_Return"])
+        buy_hold_max_dd,
+        calculate_sharpe_ratio(df["Asset_Return"]),
+        calculate_calmar_ratio(buy_hold_cagr, buy_hold_max_dd)
     ],
     "Cash / 3M T-Bill": [
-        calculate_cagr(df["Cash_Value"], df["Date"]),
+        cash_cagr,
         calculate_volatility(df["Cash_Return"]),
-        calculate_max_drawdown(df["Cash_Value"]),
-        calculate_sharpe_ratio(df["Cash_Return"])
+        cash_max_dd,
+        calculate_sharpe_ratio(df["Cash_Return"]),
+        calculate_calmar_ratio(cash_cagr, cash_max_dd)
     ]
 }, index=[
     "CAGR",
     "Volatility",
     "Max Drawdown",
-    "Sharpe Ratio"
+    "Sharpe Ratio",
+    "Calmar Ratio"
 ])
 
-metrics_display = metrics.astype(object).copy()
-
-for row in ["CAGR", "Volatility", "Max Drawdown"]:
-    metrics_display.loc[row, :] = metrics.loc[row, :].apply(lambda x: f"{x:.2%}")
-
-metrics_display.loc["Sharpe Ratio", :] = metrics.loc["Sharpe Ratio", :].apply(
-    lambda x: f"{x:.2f}"
-)
-
 st.write("### Performance Summary")
-st.dataframe(metrics_display)
+st.dataframe(format_metrics_table(metrics), use_container_width=True)
 
 # -----------------------------
 # Interactive Portfolio + T-Bill Yield Chart
@@ -268,7 +272,6 @@ fig.add_trace(
         y=df["Buy_Hold_Value"],
         mode="lines",
         name=f"Buy & Hold {ticker}",
-        line=dict(color="#2563EB"),
         hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
     ),
     row=1,
@@ -281,7 +284,6 @@ fig.add_trace(
         y=df["Strategy_Value"],
         mode="lines",
         name=f"{sma_window}-Day SMA Strategy",
-        line=dict(color="#F97316"),
         hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
     ),
     row=1,
@@ -294,7 +296,6 @@ fig.add_trace(
         y=df["TBill_3M_Yield"],
         mode="lines",
         name="3M T-Bill Yield",
-        line=dict(color="#16A34A"),
         hovertemplate="Date: %{x}<br>Yield: %{y:.2f}%<extra></extra>"
     ),
     row=2,
@@ -369,11 +370,7 @@ if show_all_trades:
 else:
     display_ledger = trade_ledger.tail(20)
 
-st.dataframe(
-    display_ledger,
-    use_container_width=True,
-    hide_index=True
-)
+st.dataframe(display_ledger, use_container_width=True, hide_index=True)
 
 csv = trade_ledger.to_csv(index=False).encode("utf-8")
 
@@ -385,29 +382,36 @@ st.download_button(
 )
 
 # -----------------------------
-# SMA Window Comparison
+# SMA Strategy Comparison
 # -----------------------------
 st.write("### SMA Strategy Comparison: 90 vs 150 vs 200 vs 315 Days")
 
 comparison_windows = [90, 150, 200, 315]
-
-comparison_df = df.copy()
 comparison_results = {}
-
-for window in comparison_windows:
-    temp_df = run_strategy(comparison_df, window, starting_balance)
-    comparison_results[f"{window}-Day SMA"] = temp_df["Strategy_Value"]
-
-comparison_chart_df = pd.DataFrame(comparison_results)
-comparison_chart_df["Date"] = df["Date"]
+comparison_metrics = {}
 
 fig_sma_compare = go.Figure()
 
 for window in comparison_windows:
+    temp_df = run_strategy(raw_df.copy(), window, starting_balance)
+
+    comparison_results[f"{window}-Day SMA"] = temp_df["Strategy_Value"]
+
+    temp_cagr = calculate_cagr(temp_df["Strategy_Value"], temp_df["Date"])
+    temp_max_dd = calculate_max_drawdown(temp_df["Strategy_Value"])
+
+    comparison_metrics[f"{window}-Day SMA"] = [
+        temp_cagr,
+        calculate_volatility(temp_df["Strategy_Return"]),
+        temp_max_dd,
+        calculate_sharpe_ratio(temp_df["Strategy_Return"]),
+        calculate_calmar_ratio(temp_cagr, temp_max_dd)
+    ]
+
     fig_sma_compare.add_trace(
         go.Scatter(
-            x=comparison_chart_df["Date"],
-            y=comparison_chart_df[f"{window}-Day SMA"],
+            x=temp_df["Date"],
+            y=temp_df["Strategy_Value"],
             mode="lines",
             name=f"{window}-Day SMA Strategy",
             hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
@@ -431,63 +435,39 @@ fig_sma_compare.update_layout(
 
 st.plotly_chart(fig_sma_compare, use_container_width=True)
 
-# -----------------------------
-# SMA Comparison Performance Summary
-# -----------------------------
-comparison_metrics = {}
-
-for window in comparison_windows:
-    temp_df = run_strategy(df.copy(), window, starting_balance)
-
-    comparison_metrics[f"{window}-Day SMA"] = [
-        calculate_cagr(temp_df["Strategy_Value"], temp_df["Date"]),
-        calculate_volatility(temp_df["Strategy_Return"]),
-        calculate_max_drawdown(temp_df["Strategy_Value"]),
-        calculate_sharpe_ratio(temp_df["Strategy_Return"])
-    ]
-
 sma_comparison_metrics = pd.DataFrame(
     comparison_metrics,
     index=[
         "CAGR",
         "Volatility",
         "Max Drawdown",
-        "Sharpe Ratio"
+        "Sharpe Ratio",
+        "Calmar Ratio"
     ]
 )
 
-sma_comparison_display = sma_comparison_metrics.astype(object).copy()
-
-for row in ["CAGR", "Volatility", "Max Drawdown"]:
-    sma_comparison_display.loc[row, :] = sma_comparison_metrics.loc[row, :].apply(
-        lambda x: f"{x:.2%}"
-    )
-
-sma_comparison_display.loc["Sharpe Ratio", :] = sma_comparison_metrics.loc[
-    "Sharpe Ratio", :
-].apply(lambda x: f"{x:.2f}")
-
 st.write("### SMA Window Performance Summary")
-st.dataframe(sma_comparison_display, use_container_width=True)
+st.dataframe(format_metrics_table(sma_comparison_metrics), use_container_width=True)
 
 # -----------------------------
-# Parameter Heatmap: SMA Window Robustness
+# Parameter Heatmap
 # -----------------------------
 st.write("### Parameter Heatmap: SMA Window Robustness")
 
 sma_range = list(range(50, 401, 10))
-
 heatmap_results = []
 
 for window in sma_range:
-    temp_df = run_strategy(df.copy(), window, starting_balance)
+    temp_df = run_strategy(raw_df.copy(), window, starting_balance)
 
     cagr = calculate_cagr(temp_df["Strategy_Value"], temp_df["Date"])
     vol = calculate_volatility(temp_df["Strategy_Return"])
     max_dd = calculate_max_drawdown(temp_df["Strategy_Value"])
     sharpe = calculate_sharpe_ratio(temp_df["Strategy_Return"])
+    calmar = calculate_calmar_ratio(cagr, max_dd)
 
-    calmar = cagr / abs(max_dd) if max_dd != 0 else np.nan
+    trade_count = temp_df["Position"].diff().abs().sum()
+    time_in_market = temp_df["Position"].mean()
 
     heatmap_results.append({
         "SMA Window": window,
@@ -495,24 +475,33 @@ for window in sma_range:
         "Volatility": vol,
         "Max Drawdown": max_dd,
         "Sharpe Ratio": sharpe,
-        "Calmar Ratio": calmar
+        "Calmar Ratio": calmar,
+        "Number of Trades": trade_count,
+        "Time in Market": time_in_market
     })
 
 heatmap_df = pd.DataFrame(heatmap_results)
 
 selected_metric = st.selectbox(
     "Select metric for heatmap",
-    ["Max Drawdown", "CAGR", "Sharpe Ratio", "Calmar Ratio", "Volatility"]
+    [
+        "Max Drawdown",
+        "CAGR",
+        "Volatility",
+        "Sharpe Ratio",
+        "Calmar Ratio",
+        "Number of Trades",
+        "Time in Market"
+    ]
 )
 
-heatmap_display = heatmap_df.copy()
-heatmap_display["Bucket"] = "SMA Window"
+z_values = [heatmap_df[selected_metric].tolist()]
 
 fig_heatmap = go.Figure(
     data=go.Heatmap(
-        x=heatmap_display["SMA Window"],
-        y=heatmap_display["Bucket"],
-        z=heatmap_display[selected_metric],
+        x=heatmap_df["SMA Window"].tolist(),
+        y=[selected_metric],
+        z=z_values,
         colorscale="RdYlGn",
         colorbar=dict(title=selected_metric),
         hovertemplate=(
@@ -532,22 +521,19 @@ fig_heatmap.update_layout(
 st.plotly_chart(fig_heatmap, use_container_width=True)
 
 # -----------------------------
-# Parameter Table
+# Parameter Results Table
 # -----------------------------
 st.write("### SMA Parameter Results Table")
 
 heatmap_table = heatmap_df.copy()
 
-for col in ["CAGR", "Volatility", "Max Drawdown"]:
+for col in ["CAGR", "Volatility", "Max Drawdown", "Time in Market"]:
     heatmap_table[col] = heatmap_table[col].apply(lambda x: f"{x:.2%}")
 
 heatmap_table["Sharpe Ratio"] = heatmap_table["Sharpe Ratio"].apply(lambda x: f"{x:.2f}")
 heatmap_table["Calmar Ratio"] = heatmap_table["Calmar Ratio"].apply(lambda x: f"{x:.2f}")
+heatmap_table["Number of Trades"] = heatmap_table["Number of Trades"].apply(lambda x: f"{x:.0f}")
 
-st.dataframe(
-    heatmap_table,
-    use_container_width=True,
-    hide_index=True
-)
+st.dataframe(heatmap_table, use_container_width=True, hide_index=True)
 
 st.success("Data loaded and strategy calculated successfully.")
