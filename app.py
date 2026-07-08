@@ -112,6 +112,7 @@ st.write(f"End Date: **{end_date}**")
 st.write(f"User-Selected Base SMA: **{sma_window} trading days**")
 st.write(f"Starting Balance: **${starting_balance:,.0f}**")
 
+
 # -----------------------------
 # Data Loader
 # -----------------------------
@@ -234,13 +235,13 @@ def run_strategy(df, sma_window, starting_balance, buffer_pct=0.0):
 # -----------------------------
 # Metric Functions
 # -----------------------------
-def calculate_total_return(values):
+def calculate_ending_value(values):
     values = values.dropna()
 
     if values.empty:
         return np.nan
 
-    return (values.iloc[-1] / values.iloc[0]) - 1
+    return values.iloc[-1]
 
 
 def calculate_cagr(values, dates):
@@ -280,7 +281,7 @@ def calculate_calmar_ratio(cagr, max_drawdown):
 
 
 def calculate_strategy_metrics(strategy_df):
-    total_return = calculate_total_return(strategy_df["Strategy_Value"])
+    ending_value = calculate_ending_value(strategy_df["Strategy_Value"])
     cagr = calculate_cagr(strategy_df["Strategy_Value"], strategy_df["Date"])
     volatility = calculate_volatility(strategy_df["Strategy_Return"])
     max_drawdown = calculate_max_drawdown(strategy_df["Strategy_Value"])
@@ -290,7 +291,7 @@ def calculate_strategy_metrics(strategy_df):
     time_in_market = strategy_df["Position"].mean()
 
     return {
-        "Total Return": total_return,
+        "Ending Portfolio Value": ending_value,
         "CAGR": cagr,
         "Volatility": volatility,
         "Max Drawdown": max_drawdown,
@@ -347,7 +348,12 @@ def add_composite_score(results_df):
 def format_metrics_table(metrics):
     display = metrics.astype(object).copy()
 
-    for row in ["Total Return", "CAGR", "Volatility", "Max Drawdown"]:
+    if "Ending Portfolio Value" in display.index:
+        display.loc["Ending Portfolio Value", :] = metrics.loc[
+            "Ending Portfolio Value", :
+        ].apply(lambda x: f"${x:,.0f}")
+
+    for row in ["CAGR", "Volatility", "Max Drawdown"]:
         if row in display.index:
             display.loc[row, :] = metrics.loc[row, :].apply(lambda x: f"{x:.2%}")
 
@@ -377,9 +383,16 @@ def format_metrics_table(metrics):
 def format_optimization_table(results_df):
     display = results_df.copy()
 
+    currency_cols = [
+        "Ending Portfolio Value"
+    ]
+
+    for col in currency_cols:
+        if col in display.columns:
+            display[col] = display[col].apply(lambda x: f"${x:,.0f}")
+
     percentage_cols = [
         "Buffer %",
-        "Total Return",
         "CAGR",
         "Volatility",
         "Max Drawdown",
@@ -541,17 +554,17 @@ base_df = run_strategy(
 
 base_metrics = calculate_strategy_metrics(base_df)
 
-buy_hold_total_return = calculate_total_return(base_df["Buy_Hold_Value"])
+buy_hold_ending_value = calculate_ending_value(base_df["Buy_Hold_Value"])
 buy_hold_cagr = calculate_cagr(base_df["Buy_Hold_Value"], base_df["Date"])
 buy_hold_max_dd = calculate_max_drawdown(base_df["Buy_Hold_Value"])
 
-cash_total_return = calculate_total_return(base_df["Cash_Value"])
+cash_ending_value = calculate_ending_value(base_df["Cash_Value"])
 cash_cagr = calculate_cagr(base_df["Cash_Value"], base_df["Date"])
 cash_max_dd = calculate_max_drawdown(base_df["Cash_Value"])
 
 metrics = pd.DataFrame({
     f"{sma_window}-Day SMA Strategy": [
-        base_metrics["Total Return"],
+        base_metrics["Ending Portfolio Value"],
         base_metrics["CAGR"],
         base_metrics["Volatility"],
         base_metrics["Max Drawdown"],
@@ -561,7 +574,7 @@ metrics = pd.DataFrame({
         base_metrics["Time in Market"]
     ],
     f"Buy & Hold {ticker}": [
-        buy_hold_total_return,
+        buy_hold_ending_value,
         buy_hold_cagr,
         calculate_volatility(base_df["Asset_Return"]),
         buy_hold_max_dd,
@@ -571,7 +584,7 @@ metrics = pd.DataFrame({
         1.0
     ],
     "Cash / 3M T-Bill": [
-        cash_total_return,
+        cash_ending_value,
         cash_cagr,
         calculate_volatility(base_df["Cash_Return"]),
         cash_max_dd,
@@ -581,7 +594,7 @@ metrics = pd.DataFrame({
         0.0
     ]
 }, index=[
-    "Total Return",
+    "Ending Portfolio Value",
     "CAGR",
     "Volatility",
     "Max Drawdown",
@@ -833,7 +846,7 @@ optimized_metrics = calculate_strategy_metrics(optimized_df)
 
 final_metrics = pd.DataFrame({
     "Base Strategy": [
-        base_metrics["Total Return"],
+        base_metrics["Ending Portfolio Value"],
         base_metrics["CAGR"],
         base_metrics["Volatility"],
         base_metrics["Max Drawdown"],
@@ -843,7 +856,7 @@ final_metrics = pd.DataFrame({
         base_metrics["Time in Market"]
     ],
     "Optimized Strategy": [
-        optimized_metrics["Total Return"],
+        optimized_metrics["Ending Portfolio Value"],
         optimized_metrics["CAGR"],
         optimized_metrics["Volatility"],
         optimized_metrics["Max Drawdown"],
@@ -853,7 +866,7 @@ final_metrics = pd.DataFrame({
         optimized_metrics["Time in Market"]
     ],
     f"Buy & Hold {ticker}": [
-        buy_hold_total_return,
+        buy_hold_ending_value,
         buy_hold_cagr,
         calculate_volatility(base_df["Asset_Return"]),
         buy_hold_max_dd,
@@ -863,7 +876,7 @@ final_metrics = pd.DataFrame({
         1.0
     ]
 }, index=[
-    "Total Return",
+    "Ending Portfolio Value",
     "CAGR",
     "Volatility",
     "Max Drawdown",
