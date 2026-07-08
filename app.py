@@ -7,13 +7,19 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 st.set_page_config(
-    page_title="315 SMA Tactical Strategy",
+    page_title="SMA Tactical Strategy Optimizer",
     layout="wide"
 )
 
-st.title("315-Day SMA Tactical Strategy")
-st.write("This app compares a moving-average tactical strategy against buy-and-hold.")
+st.title("SMA Tactical Strategy Optimizer")
+st.write(
+    "This app compares a moving-average tactical strategy against buy-and-hold, "
+    "then optimizes both the SMA window and buffer percentage using a weighted composite score."
+)
 
+# -----------------------------
+# Sidebar Inputs
+# -----------------------------
 st.sidebar.header("Strategy Configuration")
 
 ticker = st.sidebar.text_input("Ticker Symbol", value="SPY").upper()
@@ -29,9 +35,9 @@ end_date = st.sidebar.date_input(
 )
 
 sma_window = st.sidebar.number_input(
-    "Moving Average Window",
-    min_value=50,
-    max_value=500,
+    "Base SMA Window",
+    min_value=20,
+    max_value=700,
     value=315,
     step=5
 )
@@ -50,23 +56,49 @@ min_buffer = st.sidebar.number_input(
     min_value=0.0,
     max_value=20.0,
     value=0.0,
-    step=0.25
+    step=0.05
 )
 
 max_buffer = st.sidebar.number_input(
     "Maximum Buffer %",
     min_value=0.0,
     max_value=20.0,
-    value=5.0,
-    step=0.25
+    value=2.0,
+    step=0.05
 )
 
 buffer_step = st.sidebar.number_input(
     "Buffer Step %",
     min_value=0.05,
     max_value=5.0,
-    value=0.25,
+    value=0.05,
     step=0.05
+)
+
+st.sidebar.header("Stage 1 SMA Optimization")
+
+stage1_sma_min = st.sidebar.number_input(
+    "Minimum SMA",
+    min_value=20,
+    max_value=700,
+    value=50,
+    step=5
+)
+
+stage1_sma_max = st.sidebar.number_input(
+    "Maximum SMA",
+    min_value=20,
+    max_value=700,
+    value=400,
+    step=5
+)
+
+stage1_sma_step = st.sidebar.number_input(
+    "SMA Step",
+    min_value=1,
+    max_value=50,
+    value=5,
+    step=1
 )
 
 if st.sidebar.button("Refresh Data"):
@@ -77,10 +109,12 @@ st.write("### Current Settings")
 st.write(f"Ticker: **{ticker}**")
 st.write(f"Start Date: **{start_date}**")
 st.write(f"End Date: **{end_date}**")
-st.write(f"SMA Window: **{sma_window} trading days**")
+st.write(f"Base SMA Window: **{sma_window} trading days**")
 st.write(f"Starting Balance: **${starting_balance:,.0f}**")
 
-
+# -----------------------------
+# Data Loader
+# -----------------------------
 @st.cache_data(ttl=3600)
 def load_data(ticker, start_date, end_date):
     asset = yf.download(
@@ -146,13 +180,16 @@ def load_data(ticker, start_date, end_date):
 
     return df
 
-
+# -----------------------------
+# Strategy Function
+# -----------------------------
 def run_strategy(df, sma_window, starting_balance, buffer_pct=0.0):
     df = df.copy()
 
     buffer_decimal = buffer_pct / 100
 
     df["Asset_Return"] = df["Asset_Adj_Close"].pct_change().fillna(0)
+
     df["Cash_Return"] = ((1 + df["TBill_3M_Yield"] / 100) ** (1 / 252)) - 1
 
     df["SMA"] = df["Asset_Close"].rolling(window=sma_window).mean()
@@ -193,9 +230,13 @@ def run_strategy(df, sma_window, starting_balance, buffer_pct=0.0):
 
     return df
 
-
+# -----------------------------
+# Metric Functions
+# -----------------------------
 def calculate_cagr(values, dates):
     values = values.dropna()
+    dates = dates.loc[values.index]
+
     years = (dates.iloc[-1] - dates.iloc[0]).days / 365.25
 
     if years <= 0:
@@ -226,6 +267,26 @@ def calculate_calmar_ratio(cagr, max_drawdown):
         return np.nan
 
     return cagr / abs(max_drawdown)
+
+
+def calculate_strategy_metrics(strategy_df):
+    cagr = calculate_cagr(strategy_df["Strategy_Value"], strategy_df["Date"])
+    volatility = calculate_volatility(strategy_df["Strategy_Return"])
+    max_drawdown = calculate_max_drawdown(strategy_df["Strategy_Value"])
+    sharpe = calculate_sharpe_ratio(strategy_df["Strategy_Return"])
+    calmar = calculate_calmar_ratio(cagr, max_drawdown)
+    trade_count = strategy_df["Position"].diff().abs().sum()
+    time_in_market = strategy_df["Position"].mean()
+
+    return {
+        "CAGR": cagr,
+        "Volatility": volatility,
+        "Max Drawdown": max_drawdown,
+        "Sharpe Ratio": sharpe,
+        "Calmar Ratio": calmar,
+        "Number of Trades": trade_count,
+        "Time in Market": time_in_market
+    }
 
 
 def normalize_higher_better(series):
@@ -265,16 +326,29 @@ def add_composite_score(results_df):
 
     return df
 
-
+# -----------------------------
+# Display Formatting
+# -----------------------------
 def format_metrics_table(metrics):
     display = metrics.astype(object).copy()
 
     for row in ["CAGR", "Volatility", "Max Drawdown"]:
         display.loc[row, :] = metrics.loc[row, :].apply(lambda x: f"{x:.2%}")
 
-    display.loc["Sharpe Ratio", :] = metrics.loc["Sharpe Ratio", :].apply(
-        lambda x: f"{x:.2f}"
-    )
+    if "Time in Market" in display.index:
+        display.loc["Time in Market", :] = metrics.loc["Time in Market", :].apply(
+            lambda x: f"{x:.2%}"
+        )
+
+    if "Number of Trades" in display.index:
+        display.loc["Number of Trades", :] = metrics.loc["Number of Trades", :].apply(
+            lambda x: f"{x:.0f}"
+        )
+
+    if "Sharpe Ratio" in display.index:
+        display.loc["Sharpe Ratio", :] = metrics.loc["Sharpe Ratio", :].apply(
+            lambda x: f"{x:.2f}"
+        )
 
     if "Calmar Ratio" in display.index:
         display.loc["Calmar Ratio", :] = metrics.loc["Calmar Ratio", :].apply(
@@ -284,6 +358,147 @@ def format_metrics_table(metrics):
     return display
 
 
+def format_optimization_table(results_df):
+    display = results_df.copy()
+
+    percentage_cols = [
+        "Buffer %",
+        "CAGR",
+        "Volatility",
+        "Max Drawdown",
+        "Time in Market",
+        "Abs Max Drawdown"
+    ]
+
+    for col in percentage_cols:
+        if col in display.columns:
+            display[col] = display[col].apply(lambda x: f"{x:.2%}")
+
+    decimal_cols = [
+        "Sharpe Ratio",
+        "Calmar Ratio",
+        "Composite Score",
+        "Score_Max_Drawdown",
+        "Score_CAGR",
+        "Score_Sharpe",
+        "Score_Calmar",
+        "Score_Trade_Count",
+        "Score_Time_in_Market"
+    ]
+
+    for col in decimal_cols:
+        if col in display.columns:
+            display[col] = display[col].apply(lambda x: f"{x:.4f}")
+
+    if "Number of Trades" in display.columns:
+        display["Number of Trades"] = display["Number of Trades"].apply(
+            lambda x: f"{x:.0f}"
+        )
+
+    return display
+
+
+def create_portfolio_chart(strategy_df, ticker, sma_window, buffer_pct):
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=[0.75, 0.25],
+        subplot_titles=(
+            f"{sma_window}-Day SMA Strategy vs Buy & Hold {ticker}",
+            "3-Month T-Bill Yield Over Time"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=strategy_df["Date"],
+            y=strategy_df["Buy_Hold_Value"],
+            mode="lines",
+            name=f"Buy & Hold {ticker}",
+            hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+        ),
+        row=1,
+        col=1
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=strategy_df["Date"],
+            y=strategy_df["Strategy_Value"],
+            mode="lines",
+            name=f"{sma_window}-Day SMA Strategy | Buffer {buffer_pct:.2f}%",
+            hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
+        ),
+        row=1,
+        col=1
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=strategy_df["Date"],
+            y=strategy_df["TBill_3M_Yield"],
+            mode="lines",
+            name="3M T-Bill Yield",
+            hovertemplate="Date: %{x}<br>Yield: %{y:.2f}%<extra></extra>"
+        ),
+        row=2,
+        col=1
+    )
+
+    fig.update_layout(
+        height=850,
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.03,
+            xanchor="left",
+            x=0
+        )
+    )
+
+    fig.update_yaxes(title_text="Portfolio Value ($)", row=1, col=1)
+    fig.update_yaxes(title_text="Yield (%)", row=2, col=1)
+    fig.update_xaxes(title_text="Date", row=2, col=1)
+
+    return fig
+
+
+def create_score_line_chart(results_df, x_col, title, x_title):
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=results_df[x_col],
+            y=results_df["Composite Score"],
+            mode="lines+markers",
+            name="Composite Score",
+            hovertemplate=(
+                f"{x_title}: " + "%{x}<br>"
+                "Composite Score: %{y:.4f}<extra></extra>"
+            )
+        )
+    )
+
+    fig.update_layout(
+        height=500,
+        title=title,
+        xaxis_title=x_title,
+        yaxis_title="Composite Score",
+        hovermode="x unified"
+    )
+
+    if x_col == "Buffer %":
+        fig.update_xaxes(tickformat=".2%")
+
+    return fig
+
+
+# -----------------------------
+# Load Data
+# -----------------------------
 start_date_str = start_date.strftime("%Y-%m-%d")
 end_date_str = end_date.strftime("%Y-%m-%d")
 
@@ -293,160 +508,106 @@ if raw_df is None or raw_df.empty:
     st.error("No data found. Please check the ticker symbol or date range.")
     st.stop()
 
-df = run_strategy(raw_df.copy(), sma_window, starting_balance, buffer_pct=0.0)
 
 # -----------------------------
-# Performance Summary
+# Base Strategy
 # -----------------------------
-strategy_cagr = calculate_cagr(df["Strategy_Value"], df["Date"])
-strategy_max_dd = calculate_max_drawdown(df["Strategy_Value"])
+base_df = run_strategy(
+    raw_df.copy(),
+    sma_window,
+    starting_balance,
+    buffer_pct=0.0
+)
 
-buy_hold_cagr = calculate_cagr(df["Buy_Hold_Value"], df["Date"])
-buy_hold_max_dd = calculate_max_drawdown(df["Buy_Hold_Value"])
+base_metrics = calculate_strategy_metrics(base_df)
 
-cash_cagr = calculate_cagr(df["Cash_Value"], df["Date"])
-cash_max_dd = calculate_max_drawdown(df["Cash_Value"])
+buy_hold_cagr = calculate_cagr(base_df["Buy_Hold_Value"], base_df["Date"])
+buy_hold_max_dd = calculate_max_drawdown(base_df["Buy_Hold_Value"])
+
+cash_cagr = calculate_cagr(base_df["Cash_Value"], base_df["Date"])
+cash_max_dd = calculate_max_drawdown(base_df["Cash_Value"])
 
 metrics = pd.DataFrame({
     f"{sma_window}-Day SMA Strategy": [
-        strategy_cagr,
-        calculate_volatility(df["Strategy_Return"]),
-        strategy_max_dd,
-        calculate_sharpe_ratio(df["Strategy_Return"]),
-        calculate_calmar_ratio(strategy_cagr, strategy_max_dd)
+        base_metrics["CAGR"],
+        base_metrics["Volatility"],
+        base_metrics["Max Drawdown"],
+        base_metrics["Sharpe Ratio"],
+        base_metrics["Calmar Ratio"],
+        base_metrics["Number of Trades"],
+        base_metrics["Time in Market"]
     ],
     f"Buy & Hold {ticker}": [
         buy_hold_cagr,
-        calculate_volatility(df["Asset_Return"]),
+        calculate_volatility(base_df["Asset_Return"]),
         buy_hold_max_dd,
-        calculate_sharpe_ratio(df["Asset_Return"]),
-        calculate_calmar_ratio(buy_hold_cagr, buy_hold_max_dd)
+        calculate_sharpe_ratio(base_df["Asset_Return"]),
+        calculate_calmar_ratio(buy_hold_cagr, buy_hold_max_dd),
+        0,
+        1.0
     ],
     "Cash / 3M T-Bill": [
         cash_cagr,
-        calculate_volatility(df["Cash_Return"]),
+        calculate_volatility(base_df["Cash_Return"]),
         cash_max_dd,
-        calculate_sharpe_ratio(df["Cash_Return"]),
-        calculate_calmar_ratio(cash_cagr, cash_max_dd)
+        calculate_sharpe_ratio(base_df["Cash_Return"]),
+        calculate_calmar_ratio(cash_cagr, cash_max_dd),
+        0,
+        0.0
     ]
 }, index=[
     "CAGR",
     "Volatility",
     "Max Drawdown",
     "Sharpe Ratio",
-    "Calmar Ratio"
+    "Calmar Ratio",
+    "Number of Trades",
+    "Time in Market"
 ])
 
-st.write("### Performance Summary")
-st.dataframe(format_metrics_table(metrics), use_container_width=True)
+st.write("### Base Strategy Performance Summary")
+st.dataframe(
+    format_metrics_table(metrics),
+    use_container_width=True
+)
+
+st.write("### Base Strategy vs Buy & Hold")
+st.plotly_chart(
+    create_portfolio_chart(base_df, ticker, sma_window, 0.0),
+    use_container_width=True
+)
+
 
 # -----------------------------
-# Strategy Chart
+# Buffer Optimization for Base SMA
 # -----------------------------
-st.write("### Strategy vs Buy & Hold with T-Bill Yield")
+st.write("### Buffer Optimization for Base SMA")
 
-fig = make_subplots(
-    rows=2,
-    cols=1,
-    shared_xaxes=True,
-    vertical_spacing=0.08,
-    row_heights=[0.75, 0.25],
-    subplot_titles=(
-        f"{sma_window}-Day SMA Strategy vs Buy & Hold {ticker}",
-        "3-Month T-Bill Yield Over Time"
-    )
+st.write(
+    f"This section optimizes the buffer percentage while keeping the SMA fixed at "
+    f"**{sma_window} days**."
 )
-
-fig.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=df["Buy_Hold_Value"],
-        mode="lines",
-        name=f"Buy & Hold {ticker}",
-        hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
-    ),
-    row=1,
-    col=1
-)
-
-fig.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=df["Strategy_Value"],
-        mode="lines",
-        name=f"{sma_window}-Day SMA Strategy",
-        hovertemplate="Date: %{x}<br>Value: $%{y:,.2f}<extra></extra>"
-    ),
-    row=1,
-    col=1
-)
-
-fig.add_trace(
-    go.Scatter(
-        x=df["Date"],
-        y=df["TBill_3M_Yield"],
-        mode="lines",
-        name="3M T-Bill Yield",
-        hovertemplate="Date: %{x}<br>Yield: %{y:.2f}%<extra></extra>"
-    ),
-    row=2,
-    col=1
-)
-
-fig.update_layout(
-    height=850,
-    hovermode="x unified",
-    legend=dict(
-        orientation="h",
-        yanchor="bottom",
-        y=1.03,
-        xanchor="left",
-        x=0
-    )
-)
-
-fig.update_yaxes(title_text="Portfolio Value ($)", row=1, col=1)
-fig.update_yaxes(title_text="Yield (%)", row=2, col=1)
-fig.update_xaxes(title_text="Date", row=2, col=1)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# -----------------------------
-# Buffer Optimization
-# -----------------------------
-st.write("### Buffer Optimization Using Composite Score")
 
 buffer_values = np.arange(min_buffer, max_buffer + buffer_step, buffer_step)
 
 buffer_results = []
 
-for buffer in buffer_values:
+for test_buffer in buffer_values:
     temp_df = run_strategy(
         raw_df.copy(),
         sma_window,
         starting_balance,
-        buffer_pct=buffer
+        buffer_pct=test_buffer
     )
 
-    cagr = calculate_cagr(temp_df["Strategy_Value"], temp_df["Date"])
-    volatility = calculate_volatility(temp_df["Strategy_Return"])
-    max_drawdown = calculate_max_drawdown(temp_df["Strategy_Value"])
-    sharpe = calculate_sharpe_ratio(temp_df["Strategy_Return"])
-    calmar = calculate_calmar_ratio(cagr, max_drawdown)
+    row = calculate_strategy_metrics(temp_df)
 
-    trade_count = temp_df["Position"].diff().abs().sum()
-    time_in_market = temp_df["Position"].mean()
-
-    buffer_results.append({
-        "Buffer %": buffer / 100,
-        "CAGR": cagr,
-        "Volatility": volatility,
-        "Max Drawdown": max_drawdown,
-        "Sharpe Ratio": sharpe,
-        "Calmar Ratio": calmar,
-        "Number of Trades": trade_count,
-        "Time in Market": time_in_market
+    row.update({
+        "SMA Window": sma_window,
+        "Buffer %": test_buffer / 100
     })
+
+    buffer_results.append(row)
 
 buffer_results_df = pd.DataFrame(buffer_results)
 buffer_results_df = add_composite_score(buffer_results_df)
@@ -455,88 +616,257 @@ best_buffer_row = buffer_results_df.loc[
     buffer_results_df["Composite Score"].idxmax()
 ]
 
-best_buffer = best_buffer_row["Buffer %"]
+best_base_buffer = best_buffer_row["Buffer %"]
 
 st.success(
-    f"Best buffer based on composite score: {best_buffer:.2%}"
+    f"Best buffer for base SMA: {best_base_buffer:.2%}"
 )
 
-st.write("#### Composite Score Weights")
-st.write(
-    """
-    - Max Drawdown: 35%
-    - CAGR: 25%
-    - Sharpe Ratio: 15%
-    - Calmar Ratio: 15%
-    - Number of Trades: 5%
-    - Time in Market: 5%
-    """
+st.plotly_chart(
+    create_score_line_chart(
+        buffer_results_df,
+        "Buffer %",
+        f"Composite Score by Buffer Percentage for {sma_window}-Day SMA",
+        "Buffer %"
+    ),
+    use_container_width=True
 )
-
-fig_buffer = go.Figure()
-
-fig_buffer.add_trace(
-    go.Scatter(
-        x=buffer_results_df["Buffer %"],
-        y=buffer_results_df["Composite Score"],
-        mode="lines+markers",
-        name="Composite Score",
-        hovertemplate="Buffer: %{x:.2%}<br>Composite Score: %{y:.4f}<extra></extra>"
-    )
-)
-
-fig_buffer.update_layout(
-    height=500,
-    title="Composite Score by Buffer Percentage",
-    xaxis_title="Buffer %",
-    yaxis_title="Composite Score",
-    hovermode="x unified"
-)
-
-fig_buffer.update_xaxes(tickformat=".2%")
-
-st.plotly_chart(fig_buffer, use_container_width=True)
 
 display_buffer_results = buffer_results_df.sort_values(
     "Composite Score",
     ascending=False
 ).copy()
 
-for col in ["Buffer %", "CAGR", "Volatility", "Max Drawdown", "Time in Market"]:
-    display_buffer_results[col] = display_buffer_results[col].apply(lambda x: f"{x:.2%}")
-
-for col in [
-    "Sharpe Ratio",
-    "Calmar Ratio",
-    "Composite Score",
-    "Score_Max_Drawdown",
-    "Score_CAGR",
-    "Score_Sharpe",
-    "Score_Calmar",
-    "Score_Trade_Count",
-    "Score_Time_in_Market"
-]:
-    display_buffer_results[col] = display_buffer_results[col].apply(lambda x: f"{x:.4f}")
-
-display_buffer_results["Number of Trades"] = display_buffer_results[
-    "Number of Trades"
-].apply(lambda x: f"{x:.0f}")
-
-st.write("### Buffer Optimization Results Table")
+st.write("#### Buffer Optimization Results")
 st.dataframe(
-    display_buffer_results,
+    format_optimization_table(display_buffer_results),
     use_container_width=True,
     hide_index=True
 )
 
 # -----------------------------
-# Trade Ledger
+# Two-Stage Optimization Framework
 # -----------------------------
-st.write("### Trade Ledger")
+st.write("### Two-Stage Optimization Framework")
 
-df["Position_Change"] = df["Position"].diff()
+st.write(
+    """
+    Stage 1 tests multiple SMA windows with no buffer to identify the strongest trend window.
+    Stage 2 then optimizes the buffer percentage using the selected SMA window.
+    """
+)
 
-trade_ledger = df[df["Position_Change"] != 0].copy()
+# -----------------------------
+# Stage 1: SMA Optimization
+# -----------------------------
+st.write("#### Stage 1: Find Best SMA Window")
+
+if stage1_sma_min > stage1_sma_max:
+    st.error("Minimum SMA must be less than or equal to Maximum SMA.")
+    st.stop()
+
+sma_values = list(range(stage1_sma_min, stage1_sma_max + 1, stage1_sma_step))
+
+stage1_results = []
+
+for test_sma in sma_values:
+    temp_df = run_strategy(
+        raw_df.copy(),
+        test_sma,
+        starting_balance,
+        buffer_pct=0.0
+    )
+
+    row = calculate_strategy_metrics(temp_df)
+
+    row.update({
+        "SMA Window": test_sma,
+        "Buffer %": 0.0
+    })
+
+    stage1_results.append(row)
+
+stage1_results_df = pd.DataFrame(stage1_results)
+stage1_results_df = add_composite_score(stage1_results_df)
+
+best_stage1_row = stage1_results_df.loc[
+    stage1_results_df["Composite Score"].idxmax()
+]
+
+best_stage1_sma = int(best_stage1_row["SMA Window"])
+
+st.success(
+    f"Best SMA window from Stage 1: {best_stage1_sma} days"
+)
+
+st.plotly_chart(
+    create_score_line_chart(
+        stage1_results_df,
+        "SMA Window",
+        "Stage 1: Composite Score by SMA Window",
+        "SMA Window"
+    ),
+    use_container_width=True
+)
+
+display_stage1_results = stage1_results_df.sort_values(
+    "Composite Score",
+    ascending=False
+).copy()
+
+st.write("##### Stage 1 SMA Optimization Results")
+st.dataframe(
+    format_optimization_table(display_stage1_results),
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# -----------------------------
+# Stage 2: Buffer Optimization for Best SMA
+# -----------------------------
+st.write("#### Stage 2: Optimize Buffer for Best SMA Window")
+
+st.write(
+    f"Stage 2 tests buffer percentages using the selected SMA window: "
+    f"**{best_stage1_sma} days**."
+)
+
+stage2_buffer_values = np.arange(min_buffer, max_buffer + buffer_step, buffer_step)
+
+stage2_results = []
+
+for test_buffer in stage2_buffer_values:
+    temp_df = run_strategy(
+        raw_df.copy(),
+        best_stage1_sma,
+        starting_balance,
+        buffer_pct=test_buffer
+    )
+
+    row = calculate_strategy_metrics(temp_df)
+
+    row.update({
+        "SMA Window": best_stage1_sma,
+        "Buffer %": test_buffer / 100
+    })
+
+    stage2_results.append(row)
+
+stage2_results_df = pd.DataFrame(stage2_results)
+stage2_results_df = add_composite_score(stage2_results_df)
+
+best_stage2_row = stage2_results_df.loc[
+    stage2_results_df["Composite Score"].idxmax()
+]
+
+best_stage2_sma = int(best_stage2_row["SMA Window"])
+best_stage2_buffer = best_stage2_row["Buffer %"]
+
+st.success(
+    f"Final two-stage optimized strategy: "
+    f"{best_stage2_sma}-day SMA with {best_stage2_buffer:.2%} buffer"
+)
+
+st.plotly_chart(
+    create_score_line_chart(
+        stage2_results_df,
+        "Buffer %",
+        f"Stage 2: Composite Score by Buffer for {best_stage1_sma}-Day SMA",
+        "Buffer %"
+    ),
+    use_container_width=True
+)
+
+display_stage2_results = stage2_results_df.sort_values(
+    "Composite Score",
+    ascending=False
+).copy()
+
+st.write("##### Stage 2 Buffer Optimization Results")
+st.dataframe(
+    format_optimization_table(display_stage2_results),
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# -----------------------------
+# Final Optimized Strategy
+# -----------------------------
+st.write("### Final Optimized Strategy Performance")
+
+optimized_df = run_strategy(
+    raw_df.copy(),
+    best_stage2_sma,
+    starting_balance,
+    buffer_pct=best_stage2_buffer * 100
+)
+
+optimized_metrics = calculate_strategy_metrics(optimized_df)
+
+final_metrics = pd.DataFrame({
+    "Base Strategy": [
+        base_metrics["CAGR"],
+        base_metrics["Volatility"],
+        base_metrics["Max Drawdown"],
+        base_metrics["Sharpe Ratio"],
+        base_metrics["Calmar Ratio"],
+        base_metrics["Number of Trades"],
+        base_metrics["Time in Market"]
+    ],
+    "Optimized Strategy": [
+        optimized_metrics["CAGR"],
+        optimized_metrics["Volatility"],
+        optimized_metrics["Max Drawdown"],
+        optimized_metrics["Sharpe Ratio"],
+        optimized_metrics["Calmar Ratio"],
+        optimized_metrics["Number of Trades"],
+        optimized_metrics["Time in Market"]
+    ],
+    f"Buy & Hold {ticker}": [
+        buy_hold_cagr,
+        calculate_volatility(base_df["Asset_Return"]),
+        buy_hold_max_dd,
+        calculate_sharpe_ratio(base_df["Asset_Return"]),
+        calculate_calmar_ratio(buy_hold_cagr, buy_hold_max_dd),
+        0,
+        1.0
+    ]
+}, index=[
+    "CAGR",
+    "Volatility",
+    "Max Drawdown",
+    "Sharpe Ratio",
+    "Calmar Ratio",
+    "Number of Trades",
+    "Time in Market"
+])
+
+st.dataframe(
+    format_metrics_table(final_metrics),
+    use_container_width=True
+)
+
+st.plotly_chart(
+    create_portfolio_chart(
+        optimized_df,
+        ticker,
+        best_stage2_sma,
+        best_stage2_buffer * 100
+    ),
+    use_container_width=True
+)
+
+
+# -----------------------------
+# Trade Ledger for Optimized Strategy
+# -----------------------------
+st.write("### Optimized Strategy Trade Ledger")
+
+optimized_df["Position_Change"] = optimized_df["Position"].diff()
+
+trade_ledger = optimized_df[optimized_df["Position_Change"] != 0].copy()
 
 trade_ledger["Trade_Action"] = np.where(
     trade_ledger["Position"] == 1,
@@ -546,8 +876,8 @@ trade_ledger["Trade_Action"] = np.where(
 
 trade_ledger["Reason"] = np.where(
     trade_ledger["Position"] == 1,
-    f"2 consecutive closes ABOVE {sma_window}-day SMA",
-    f"2 consecutive closes BELOW {sma_window}-day SMA"
+    f"2 consecutive closes ABOVE upper buffer",
+    f"2 consecutive closes BELOW lower buffer"
 )
 
 trade_ledger["Strategy_Advantage"] = (
@@ -560,6 +890,8 @@ trade_ledger = trade_ledger[[
     "Reason",
     "Asset_Close",
     "SMA",
+    "Upper_Buffer",
+    "Lower_Buffer",
     "TBill_3M_Yield",
     "Strategy_Value",
     "Buy_Hold_Value",
@@ -568,11 +900,13 @@ trade_ledger = trade_ledger[[
 
 trade_ledger = trade_ledger.rename(columns={
     "Asset_Close": f"{ticker}_Close",
-    "SMA": f"{sma_window}_Day_SMA",
+    "SMA": f"{best_stage2_sma}_Day_SMA",
+    "Upper_Buffer": "Upper_Buffer_Level",
+    "Lower_Buffer": "Lower_Buffer_Level",
     "TBill_3M_Yield": "3M_TBill_Yield"
 })
 
-show_all_trades = st.checkbox("Show all trade ledger entries", value=False)
+show_all_trades = st.checkbox("Show all optimized trade ledger entries", value=False)
 
 if show_all_trades:
     display_ledger = trade_ledger
@@ -588,10 +922,46 @@ st.dataframe(
 csv = trade_ledger.to_csv(index=False).encode("utf-8")
 
 st.download_button(
-    label="Download Full Trade Ledger as CSV",
+    label="Download Optimized Trade Ledger as CSV",
     data=csv,
-    file_name=f"{ticker}_trade_ledger.csv",
+    file_name=f"{ticker}_optimized_trade_ledger.csv",
     mime="text/csv"
 )
 
-st.success("Data loaded and strategy calculated successfully.")
+
+# -----------------------------
+# Download Optimization Results
+# -----------------------------
+st.write("### Download Optimization Results")
+
+stage1_csv = stage1_results_df.to_csv(index=False).encode("utf-8")
+stage2_csv = stage2_results_df.to_csv(index=False).encode("utf-8")
+buffer_csv = buffer_results_df.to_csv(index=False).encode("utf-8")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.download_button(
+        label="Download Stage 1 SMA Results",
+        data=stage1_csv,
+        file_name=f"{ticker}_stage1_sma_optimization.csv",
+        mime="text/csv"
+    )
+
+with col2:
+    st.download_button(
+        label="Download Stage 2 Buffer Results",
+        data=stage2_csv,
+        file_name=f"{ticker}_stage2_buffer_optimization.csv",
+        mime="text/csv"
+    )
+
+with col3:
+    st.download_button(
+        label="Download Base Buffer Results",
+        data=buffer_csv,
+        file_name=f"{ticker}_base_buffer_optimization.csv",
+        mime="text/csv"
+    )
+
+st.success("Data loaded and strategy optimization completed successfully.")
