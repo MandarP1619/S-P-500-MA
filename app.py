@@ -35,7 +35,7 @@ end_date = st.sidebar.date_input(
 )
 
 sma_window = st.sidebar.number_input(
-    "Base SMA Window",
+    "User-Selected Base SMA for Buffer Optimization",
     min_value=20,
     max_value=700,
     value=315,
@@ -109,7 +109,7 @@ st.write("### Current Settings")
 st.write(f"Ticker: **{ticker}**")
 st.write(f"Start Date: **{start_date}**")
 st.write(f"End Date: **{end_date}**")
-st.write(f"Base SMA Window: **{sma_window} trading days**")
+st.write(f"User-Selected Base SMA: **{sma_window} trading days**")
 st.write(f"Starting Balance: **${starting_balance:,.0f}**")
 
 # -----------------------------
@@ -180,6 +180,7 @@ def load_data(ticker, start_date, end_date):
 
     return df
 
+
 # -----------------------------
 # Strategy Function
 # -----------------------------
@@ -189,7 +190,6 @@ def run_strategy(df, sma_window, starting_balance, buffer_pct=0.0):
     buffer_decimal = buffer_pct / 100
 
     df["Asset_Return"] = df["Asset_Adj_Close"].pct_change().fillna(0)
-
     df["Cash_Return"] = ((1 + df["TBill_3M_Yield"] / 100) ** (1 / 252)) - 1
 
     df["SMA"] = df["Asset_Close"].rolling(window=sma_window).mean()
@@ -230,9 +230,19 @@ def run_strategy(df, sma_window, starting_balance, buffer_pct=0.0):
 
     return df
 
+
 # -----------------------------
 # Metric Functions
 # -----------------------------
+def calculate_total_return(values):
+    values = values.dropna()
+
+    if values.empty:
+        return np.nan
+
+    return (values.iloc[-1] / values.iloc[0]) - 1
+
+
 def calculate_cagr(values, dates):
     values = values.dropna()
     dates = dates.loc[values.index]
@@ -270,6 +280,7 @@ def calculate_calmar_ratio(cagr, max_drawdown):
 
 
 def calculate_strategy_metrics(strategy_df):
+    total_return = calculate_total_return(strategy_df["Strategy_Value"])
     cagr = calculate_cagr(strategy_df["Strategy_Value"], strategy_df["Date"])
     volatility = calculate_volatility(strategy_df["Strategy_Return"])
     max_drawdown = calculate_max_drawdown(strategy_df["Strategy_Value"])
@@ -279,6 +290,7 @@ def calculate_strategy_metrics(strategy_df):
     time_in_market = strategy_df["Position"].mean()
 
     return {
+        "Total Return": total_return,
         "CAGR": cagr,
         "Volatility": volatility,
         "Max Drawdown": max_drawdown,
@@ -288,7 +300,9 @@ def calculate_strategy_metrics(strategy_df):
         "Time in Market": time_in_market
     }
 
-
+# -----------------------------
+# Composite Score Functions
+# -----------------------------
 def normalize_higher_better(series):
     if series.max() == series.min():
         return pd.Series(1, index=series.index)
@@ -326,14 +340,16 @@ def add_composite_score(results_df):
 
     return df
 
+
 # -----------------------------
 # Display Formatting
 # -----------------------------
 def format_metrics_table(metrics):
     display = metrics.astype(object).copy()
 
-    for row in ["CAGR", "Volatility", "Max Drawdown"]:
-        display.loc[row, :] = metrics.loc[row, :].apply(lambda x: f"{x:.2%}")
+    for row in ["Total Return", "CAGR", "Volatility", "Max Drawdown"]:
+        if row in display.index:
+            display.loc[row, :] = metrics.loc[row, :].apply(lambda x: f"{x:.2%}")
 
     if "Time in Market" in display.index:
         display.loc["Time in Market", :] = metrics.loc["Time in Market", :].apply(
@@ -363,6 +379,7 @@ def format_optimization_table(results_df):
 
     percentage_cols = [
         "Buffer %",
+        "Total Return",
         "CAGR",
         "Volatility",
         "Max Drawdown",
@@ -398,6 +415,9 @@ def format_optimization_table(results_df):
     return display
 
 
+# -----------------------------
+# Chart Functions
+# -----------------------------
 def create_portfolio_chart(strategy_df, ticker, sma_window, buffer_pct):
     fig = make_subplots(
         rows=2,
@@ -521,14 +541,17 @@ base_df = run_strategy(
 
 base_metrics = calculate_strategy_metrics(base_df)
 
+buy_hold_total_return = calculate_total_return(base_df["Buy_Hold_Value"])
 buy_hold_cagr = calculate_cagr(base_df["Buy_Hold_Value"], base_df["Date"])
 buy_hold_max_dd = calculate_max_drawdown(base_df["Buy_Hold_Value"])
 
+cash_total_return = calculate_total_return(base_df["Cash_Value"])
 cash_cagr = calculate_cagr(base_df["Cash_Value"], base_df["Date"])
 cash_max_dd = calculate_max_drawdown(base_df["Cash_Value"])
 
 metrics = pd.DataFrame({
     f"{sma_window}-Day SMA Strategy": [
+        base_metrics["Total Return"],
         base_metrics["CAGR"],
         base_metrics["Volatility"],
         base_metrics["Max Drawdown"],
@@ -538,6 +561,7 @@ metrics = pd.DataFrame({
         base_metrics["Time in Market"]
     ],
     f"Buy & Hold {ticker}": [
+        buy_hold_total_return,
         buy_hold_cagr,
         calculate_volatility(base_df["Asset_Return"]),
         buy_hold_max_dd,
@@ -547,6 +571,7 @@ metrics = pd.DataFrame({
         1.0
     ],
     "Cash / 3M T-Bill": [
+        cash_total_return,
         cash_cagr,
         calculate_volatility(base_df["Cash_Return"]),
         cash_max_dd,
@@ -556,6 +581,7 @@ metrics = pd.DataFrame({
         0.0
     ]
 }, index=[
+    "Total Return",
     "CAGR",
     "Volatility",
     "Max Drawdown",
@@ -577,11 +603,10 @@ st.plotly_chart(
     use_container_width=True
 )
 
-
 # -----------------------------
-# Buffer Optimization for Base SMA
+# Buffer Optimization for User-Selected Base SMA
 # -----------------------------
-st.write("### Buffer Optimization for Base SMA")
+st.write(f"### Buffer Optimization for User-Selected {sma_window}-Day SMA")
 
 st.write(
     f"This section optimizes the buffer percentage while keeping the SMA fixed at "
@@ -619,7 +644,7 @@ best_buffer_row = buffer_results_df.loc[
 best_base_buffer = best_buffer_row["Buffer %"]
 
 st.success(
-    f"Best buffer for base SMA: {best_base_buffer:.2%}"
+    f"Best buffer for user-selected {sma_window}-day SMA: {best_base_buffer:.2%}"
 )
 
 st.plotly_chart(
@@ -643,6 +668,7 @@ st.dataframe(
     use_container_width=True,
     hide_index=True
 )
+
 
 # -----------------------------
 # Two-Stage Optimization Framework
@@ -807,6 +833,7 @@ optimized_metrics = calculate_strategy_metrics(optimized_df)
 
 final_metrics = pd.DataFrame({
     "Base Strategy": [
+        base_metrics["Total Return"],
         base_metrics["CAGR"],
         base_metrics["Volatility"],
         base_metrics["Max Drawdown"],
@@ -816,6 +843,7 @@ final_metrics = pd.DataFrame({
         base_metrics["Time in Market"]
     ],
     "Optimized Strategy": [
+        optimized_metrics["Total Return"],
         optimized_metrics["CAGR"],
         optimized_metrics["Volatility"],
         optimized_metrics["Max Drawdown"],
@@ -825,6 +853,7 @@ final_metrics = pd.DataFrame({
         optimized_metrics["Time in Market"]
     ],
     f"Buy & Hold {ticker}": [
+        buy_hold_total_return,
         buy_hold_cagr,
         calculate_volatility(base_df["Asset_Return"]),
         buy_hold_max_dd,
@@ -834,6 +863,7 @@ final_metrics = pd.DataFrame({
         1.0
     ]
 }, index=[
+    "Total Return",
     "CAGR",
     "Volatility",
     "Max Drawdown",
@@ -860,7 +890,7 @@ st.plotly_chart(
 
 
 # -----------------------------
-# Trade Ledger for Optimized Strategy
+# Optimized Strategy Trade Ledger
 # -----------------------------
 st.write("### Optimized Strategy Trade Ledger")
 
@@ -876,8 +906,8 @@ trade_ledger["Trade_Action"] = np.where(
 
 trade_ledger["Reason"] = np.where(
     trade_ledger["Position"] == 1,
-    f"2 consecutive closes ABOVE upper buffer",
-    f"2 consecutive closes BELOW lower buffer"
+    "2 consecutive closes ABOVE upper buffer",
+    "2 consecutive closes BELOW lower buffer"
 )
 
 trade_ledger["Strategy_Advantage"] = (
