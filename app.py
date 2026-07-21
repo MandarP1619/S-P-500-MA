@@ -26,21 +26,26 @@ st.sidebar.header("Strategy Configuration")
 
 ticker = st.sidebar.text_input("Ticker Symbol", value="SPY").upper()
 
-from datetime import date
-
-start_date = st.sidebar.date_input(
-    "Start Date",
-    value=date(1995, 1, 1),
-    min_value=date(1900, 1, 1),
-    max_value=date(2100, 12, 31)
+start_date_text = st.sidebar.text_input(
+    "Start Date (YYYY-MM-DD)",
+    value="1995-01-01"
 )
 
-end_date = st.sidebar.date_input(
-    "End Date",
-    value=date.today(),
-    min_value=date(1900, 1, 1),
-    max_value=date(2100, 12, 31)
+end_date_text = st.sidebar.text_input(
+    "End Date (YYYY-MM-DD)",
+    value=date.today().isoformat()
 )
+
+try:
+    start_date = date.fromisoformat(start_date_text.strip())
+    end_date = date.fromisoformat(end_date_text.strip())
+except ValueError:
+    st.sidebar.error("Enter dates in YYYY-MM-DD format.")
+    st.stop()
+
+if start_date >= end_date:
+    st.sidebar.error("Start Date must be earlier than End Date.")
+    st.stop()
 
 sma_window = st.sidebar.number_input(
     "User-Selected Base SMA",
@@ -55,6 +60,20 @@ starting_balance = st.sidebar.number_input(
     min_value=1000,
     value=10000,
     step=1000
+)
+
+st.sidebar.header("Base Strategy Settings")
+
+base_buffer_pct = st.sidebar.number_input(
+    "Base Strategy Buffer %",
+    min_value=0.0,
+    max_value=20.0,
+    value=0.0,
+    step=0.05,
+    help=(
+        "Buffer used only for the initial base-strategy comparison against "
+        "buy and hold. Enter 0.70 for a 0.70% buffer."
+    )
 )
 
 st.sidebar.header("Buffer Search Range")
@@ -128,6 +147,7 @@ st.write(f"Start Date: **{start_date}**")
 st.write(f"End Date: **{end_date}**")
 st.write(f"User-Selected Base SMA: **{sma_window} trading days**")
 st.write(f"Starting Balance: **${starting_balance:,.0f}**")
+st.write(f"Base Strategy Buffer: **{base_buffer_pct:.2f}%**")
 
 # -----------------------------
 # Data Loader
@@ -693,7 +713,7 @@ base_df = run_strategy(
     raw_df.copy(),
     sma_window,
     starting_balance,
-    buffer_pct=0.0
+    buffer_pct=base_buffer_pct
 )
 
 base_metrics = calculate_strategy_metrics(base_df)
@@ -707,7 +727,7 @@ cash_cagr = calculate_cagr(base_df["Cash_Value"], base_df["Date"])
 cash_max_dd = calculate_max_drawdown(base_df["Cash_Value"])
 
 metrics = pd.DataFrame({
-    f"{sma_window}-Day SMA Strategy": [
+    f"{sma_window}-Day SMA Strategy ({base_buffer_pct:.2f}% Buffer)": [
         base_metrics["Ending Portfolio Value"],
         base_metrics["CAGR"],
         base_metrics["Volatility"],
@@ -756,7 +776,7 @@ st.dataframe(
 
 st.write("### Base Strategy vs Buy & Hold")
 st.plotly_chart(
-    create_portfolio_chart(base_df, ticker, sma_window, 0.0),
+    create_portfolio_chart(base_df, ticker, sma_window, base_buffer_pct),
     use_container_width=True,
     key="base_portfolio_chart"
 )
@@ -980,7 +1000,7 @@ optimized_df = run_strategy(
 optimized_metrics = calculate_strategy_metrics(optimized_df)
 
 final_metrics = pd.DataFrame({
-    "Base Strategy": [
+    f"Base Strategy ({sma_window}-Day SMA, {base_buffer_pct:.2f}% Buffer)": [
         base_metrics["Ending Portfolio Value"],
         base_metrics["CAGR"],
         base_metrics["Volatility"],
