@@ -26,14 +26,20 @@ st.sidebar.header("Strategy Configuration")
 
 ticker = st.sidebar.text_input("Ticker Symbol", value="SPY").upper()
 
+from datetime import date
+
 start_date = st.sidebar.date_input(
     "Start Date",
-    value=date(1995, 1, 1)
+    value=date(1995, 1, 1),
+    min_value=date(1900, 1, 1),
+    max_value=date(2100, 12, 31)
 )
 
 end_date = st.sidebar.date_input(
     "End Date",
-    value=date.today()
+    value=date.today(),
+    min_value=date(1900, 1, 1),
+    max_value=date(2100, 12, 31)
 )
 
 sma_window = st.sidebar.number_input(
